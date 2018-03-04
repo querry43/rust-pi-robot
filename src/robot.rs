@@ -5,20 +5,24 @@ use rppal::gpio::{Gpio, Mode, Level};
 use rppal::system::DeviceInfo;
 use serde_json;
 use std::fmt;
-use std::thread::sleep;
-use std::time::Duration;
 
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PWMChannel {
-	pub channel: u8,
-	pub position: f32,
+    pub channel: u8,
+    pub invert: bool,
+    pub low: u16,
+    pub high: u16,
+    pub position: f32,
 }
 
 impl Default for PWMChannel {
     fn default() -> PWMChannel {
         PWMChannel {
             channel: 0,
+            invert: false,
+            low: 40,
+            high: 1000,
             position: 0.5,
         }
     }
@@ -79,26 +83,31 @@ impl Robot {
     }
 
     pub fn update(&self) -> Result<(), LinuxI2CError> {
-        //self.update_pwm_channels().unwrap();
+        self.update_pwm_channels().unwrap();
         self.update_led_displays().unwrap();
         Ok(())
     }
 
     fn update_pwm_channels(&self) -> Result<(), LinuxI2CError> {
         if ! self.enable { return Ok(()); }
+
         let i2cdevice = LinuxI2CDevice::new("/dev/i2c-1", 0x40)?;
         let mut pwm = PCA9685::new(i2cdevice)?;
         pwm.set_pwm_freq(60.0)?;
         pwm.set_all_pwm(0, 0)?;
-    
-        for x in 200..500 {
-            pwm.set_pwm(1, 0, x)?;
-            sleep(Duration::from_millis(10));
-        }
-    
-        for x in (200..500).rev() {
-            pwm.set_pwm(1, 0, x)?;
-            sleep(Duration::from_millis(10));
+
+        for i in 0..self.pwm_channels.len() {
+            let mut position = self.pwm_channels[i].position;
+
+            if self.pwm_channels[i].invert {
+                position *= -1.0;
+                position += 1.0;
+            }
+
+            let range = self.pwm_channels[i].high - self.pwm_channels[i].low;
+            let val: u16 = (position * range as f32) as u16 + self.pwm_channels[i].low;
+
+            pwm.set_pwm(i as u8, 0, val)?;
         }
     
         Ok(())
