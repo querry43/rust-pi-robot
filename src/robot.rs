@@ -115,31 +115,22 @@ impl Robot {
     }
 
     fn update_led_displays(&self) -> sysfs_gpio::Result<()> {
-        let clock = Pin::new(self.led_displays[0].clock_pin as u64);
-        let data = Pin::new(self.led_displays[0].data_pin as u64);
+        for i in 0..self.led_displays.len()-1 {
+            let clock = Pin::new(self.led_displays[i].clock_pin as u64);
+            let data = Pin::new(self.led_displays[i].data_pin as u64);
 
-        clock.export()?;
-        data.export()?;
+            clock.export()?;
+            data.export()?;
 
-        clock.set_direction(Direction::Out)?;
-        data.set_direction(Direction::Out)?;
+            clock.set_direction(Direction::Out)?;
+            data.set_direction(Direction::Out)?;
 
-        data.set_value(0)?;
 
-        for _ in 1..16 {
-            clock.set_value(1)?;
-            sleep(Duration::from_millis(10));
-            clock.set_value(0)?;
-            sleep(Duration::from_millis(10));
-        }
-
-        data.set_value(1)?;
-
-        for _ in 1..16 {
-            clock.set_value(1)?;
-            sleep(Duration::from_millis(10));
-            clock.set_value(0)?;
-            sleep(Duration::from_millis(10));
+            for b in self.led_displays[i].state.iter().rev() {
+                data.set_value((!b) as u8)?;
+                clock.set_value(1)?;
+                clock.set_value(0)?;
+            }
         }
 
         Ok(())
