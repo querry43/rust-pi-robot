@@ -1,11 +1,12 @@
 use i2c_pca9685::PCA9685;
 use i2cdev::linux::{LinuxI2CDevice, LinuxI2CError};
+use rppal::gpio::{Gpio, Mode, Level};
+use rppal::system::DeviceInfo;
 use serde_json;
 use std::fmt;
 use std::thread::sleep;
 use std::time::Duration;
-use sysfs_gpio::{Direction, Pin};
-use sysfs_gpio;
+
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 pub struct PWMChannel {
@@ -114,22 +115,26 @@ impl Robot {
         Ok(())
     }
 
-    fn update_led_displays(&self) -> sysfs_gpio::Result<()> {
+    fn update_led_displays(&self) -> Result<(), ()> {
+        let device_info = DeviceInfo::new().unwrap();
+        println!("Model: {} (SoC: {})", device_info.model(), device_info.soc());
+
+        let mut gpio = Gpio::new().unwrap();
+
         for i in 0..self.led_displays.len()-1 {
-            let clock = Pin::new(self.led_displays[i].clock_pin as u64);
-            let data = Pin::new(self.led_displays[i].data_pin as u64);
-
-            clock.export()?;
-            data.export()?;
-
-            clock.set_direction(Direction::Out)?;
-            data.set_direction(Direction::Out)?;
+            gpio.set_mode(self.led_displays[i].clock_pin, Mode::Output);
+            gpio.set_mode(self.led_displays[i].data_pin, Mode::Output);
 
 
             for b in self.led_displays[i].state.iter().rev() {
-                data.set_value((!b) as u8)?;
-                clock.set_value(1)?;
-                clock.set_value(0)?;
+                if *b {
+                    gpio.write(self.led_displays[i].data_pin, Level::Low);
+                } else {
+                    gpio.write(self.led_displays[i].data_pin, Level::High);
+                }
+
+                gpio.write(self.led_displays[i].clock_pin, Level::High);
+                gpio.write(self.led_displays[i].clock_pin, Level::Low);
             }
         }
 

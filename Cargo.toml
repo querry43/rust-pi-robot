@@ -4,12 +4,10 @@ version = "0.1.0"
 authors = ["Matt Harrington <querry43@gmail.com>"]
 
 [dependencies]
-i2cdev = "0.3.2"
+i2c-pca9685 = { git = "https://github.com/querry43/i2c-pca9685" }
+i2cdev = "= 0.3.1"
+rppal = "0.2"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
-sysfs_gpio = "0.5"
 ws = "0.7.3"
-
-# i2c-pca9685 = "0.1.8"
-i2c-pca9685 = { git = "https://github.com/querry43/i2c-pca9685" }
