@@ -69,8 +69,8 @@ impl Default for Robot {
                 PWMChannel { channel: 15, ..Default::default() },
             ],
             led_displays: [
-                LEDDisplay { channel: 0, clock_pin: 10, data_pin: 11, ..Default::default() },
-                LEDDisplay { channel: 1, clock_pin: 12, data_pin: 13, ..Default::default() },
+                LEDDisplay { channel: 0, clock_pin: 20, data_pin: 21, ..Default::default() },
+                LEDDisplay { channel: 1, clock_pin: 19, data_pin: 26, ..Default::default() },
             ],
         }
     }
@@ -89,7 +89,13 @@ impl<'a> From<&'a str> for Robot {
 }
 
 impl Robot {
-    pub fn refresh_pwm() -> Result<(), LinuxI2CError> {
+    pub fn update(&self) -> Result<(), LinuxI2CError> {
+        //self.update_pwm_channels().unwrap();
+        self.update_led_displays().unwrap();
+        Ok(())
+    }
+
+    fn update_pwm_channels(&self) -> Result<(), LinuxI2CError> {
         let i2cdevice = LinuxI2CDevice::new("/dev/i2c-1", 0x40)?;
         let mut pwm = PCA9685::new(i2cdevice)?;
         pwm.set_pwm_freq(60.0)?;
@@ -108,7 +114,7 @@ impl Robot {
         Ok(())
     }
 
-    pub fn refresh_led_displays(&self) -> sysfs_gpio::Result<()> {
+    fn update_led_displays(&self) -> sysfs_gpio::Result<()> {
         let clock = Pin::new(self.led_displays[0].clock_pin as u64);
         let data = Pin::new(self.led_displays[0].data_pin as u64);
 
@@ -122,18 +128,18 @@ impl Robot {
 
         for _ in 1..16 {
             clock.set_value(1)?;
-            sleep(Duration::from_millis(200));
+            sleep(Duration::from_millis(10));
             clock.set_value(0)?;
-            sleep(Duration::from_millis(200));
+            sleep(Duration::from_millis(10));
         }
 
         data.set_value(1)?;
 
         for _ in 1..16 {
             clock.set_value(1)?;
-            sleep(Duration::from_millis(200));
+            sleep(Duration::from_millis(10));
             clock.set_value(0)?;
-            sleep(Duration::from_millis(200));
+            sleep(Duration::from_millis(10));
         }
 
         Ok(())

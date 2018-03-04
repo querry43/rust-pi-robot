@@ -23,6 +23,7 @@ impl Handler for Server {
             assigato_remote::Message::PWMChannel(pwm) => r.pwm_channels[pwm.channel as usize] = pwm,
             assigato_remote::Message::LEDDisplay(led) => println!("got led update: {:?}", led),
         }
+        r.update().unwrap();
         self.out.broadcast(r.to_string())
     }
 
@@ -33,7 +34,22 @@ impl Handler for Server {
     }
 }
 
+use std::thread;
+use std::thread::sleep;
+use std::time::Duration;
+
 fn main() {
     let robot = Arc::new(Mutex::new(assigato_remote::robot::Robot { ..Default::default() }));
+    spawn_robot_update_thread(robot.clone());
     listen("127.0.0.1:3012", |out| Server { out: out, robot: robot.clone() } ).unwrap()
 } 
+
+fn spawn_robot_update_thread(robot: Arc<Mutex<assigato_remote::robot::Robot>>) {
+    thread::spawn(move || {
+        loop {
+            let r = robot.lock().unwrap();
+            r.update().unwrap();
+            sleep(Duration::from_secs(1));
+        }
+    });
+}
