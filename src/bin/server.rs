@@ -2,6 +2,9 @@ extern crate assigato_remote;
 extern crate ws;
 
 use std::sync::{Arc, Mutex};
+use std::thread::sleep;
+use std::thread;
+use std::time::Duration;
 use ws::{listen, Handler, Sender, Handshake, CloseCode};
 
 struct Server {
@@ -34,14 +37,17 @@ impl Handler for Server {
     }
 }
 
-use std::thread;
-use std::thread::sleep;
-use std::time::Duration;
-
 fn main() {
-    let robot = Arc::new(Mutex::new(assigato_remote::robot::Robot { ..Default::default() }));
-    spawn_robot_update_thread(robot.clone());
-    listen("127.0.0.1:3012", |out| Server { out: out, robot: robot.clone() } ).unwrap()
+    let robot = assigato_remote::robot::Robot::new().unwrap();
+
+    if robot.debug {
+        println!("Robot configuration loaded: {}", robot);
+    }
+
+    let robot_mutex = Arc::new(Mutex::new(robot));
+
+    spawn_robot_update_thread(robot_mutex.clone());
+    listen("127.0.0.1:3012", |out| Server { out: out, robot: robot_mutex.clone() } ).unwrap()
 } 
 
 fn spawn_robot_update_thread(robot: Arc<Mutex<assigato_remote::robot::Robot>>) {

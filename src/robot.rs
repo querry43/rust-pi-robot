@@ -1,3 +1,4 @@
+use config::{ConfigError, Config, File, Environment};
 use i2c_pca9685::PCA9685;
 use i2cdev::linux::{LinuxI2CDevice, LinuxI2CError};
 use rppal::gpio::{Gpio, Mode, Level};
@@ -8,7 +9,7 @@ use std::thread::sleep;
 use std::time::Duration;
 
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PWMChannel {
 	pub channel: u8,
 	pub position: f32,
@@ -23,7 +24,7 @@ impl Default for PWMChannel {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LEDDisplay {
     pub channel: u8,
     pub state: [bool; 16],
@@ -42,39 +43,12 @@ impl Default for LEDDisplay {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Robot {
-    pub pwm_channels: [PWMChannel; 16],
-    pub led_displays: [LEDDisplay; 2],
-}
-
-impl Default for Robot {
-    fn default() -> Robot {
-        Robot {
-            pwm_channels: [
-                PWMChannel { channel:  0, ..Default::default() },
-                PWMChannel { channel:  1, ..Default::default() },
-                PWMChannel { channel:  2, ..Default::default() },
-                PWMChannel { channel:  3, ..Default::default() },
-                PWMChannel { channel:  4, ..Default::default() },
-                PWMChannel { channel:  5, ..Default::default() },
-                PWMChannel { channel:  6, ..Default::default() },
-                PWMChannel { channel:  7, ..Default::default() },
-                PWMChannel { channel:  8, ..Default::default() },
-                PWMChannel { channel:  9, ..Default::default() },
-                PWMChannel { channel: 10, ..Default::default() },
-                PWMChannel { channel: 11, ..Default::default() },
-                PWMChannel { channel: 12, ..Default::default() },
-                PWMChannel { channel: 13, ..Default::default() },
-                PWMChannel { channel: 14, ..Default::default() },
-                PWMChannel { channel: 15, ..Default::default() },
-            ],
-            led_displays: [
-                LEDDisplay { channel: 0, clock_pin: 20, data_pin: 21, ..Default::default() },
-                LEDDisplay { channel: 1, clock_pin: 19, data_pin: 26, ..Default::default() },
-            ],
-        }
-    }
+    pub enable: bool,
+    pub debug: bool,
+    pub pwm_channels: Vec<PWMChannel>,
+    pub led_displays: Vec<LEDDisplay>,
 }
 
 impl fmt::Display for Robot {
@@ -90,6 +64,20 @@ impl<'a> From<&'a str> for Robot {
 }
 
 impl Robot {
+    pub fn new() -> Result<Self, ConfigError> {
+        let mut s = Config::new();
+
+        s.merge(File::with_name("config/robot.yaml"))?;
+        s.merge(Environment::with_prefix("robot"))?;
+
+        if s.get_bool("enable")? {
+            let device_info = DeviceInfo::new().unwrap();
+            println!("Model: {} (SoC: {})", device_info.model(), device_info.soc());
+        }
+
+        s.try_into()
+    }
+
     pub fn update(&self) -> Result<(), LinuxI2CError> {
         //self.update_pwm_channels().unwrap();
         self.update_led_displays().unwrap();
@@ -97,6 +85,7 @@ impl Robot {
     }
 
     fn update_pwm_channels(&self) -> Result<(), LinuxI2CError> {
+        if ! self.enable { return Ok(()); }
         let i2cdevice = LinuxI2CDevice::new("/dev/i2c-1", 0x40)?;
         let mut pwm = PCA9685::new(i2cdevice)?;
         pwm.set_pwm_freq(60.0)?;
@@ -116,25 +105,27 @@ impl Robot {
     }
 
     fn update_led_displays(&self) -> Result<(), ()> {
-        let device_info = DeviceInfo::new().unwrap();
-        println!("Model: {} (SoC: {})", device_info.model(), device_info.soc());
+        for i in 0..self.led_displays.len() {
+            if self.debug {
+                println!("Updating led display channel {} to {:?}", i, self.led_displays[i].state);
+            }
 
-        let mut gpio = Gpio::new().unwrap();
+            if self.enable {
+                let mut gpio = Gpio::new().unwrap();
+                gpio.set_mode(self.led_displays[i].clock_pin, Mode::Output);
+                gpio.set_mode(self.led_displays[i].data_pin, Mode::Output);
 
-        for i in 0..self.led_displays.len()-1 {
-            gpio.set_mode(self.led_displays[i].clock_pin, Mode::Output);
-            gpio.set_mode(self.led_displays[i].data_pin, Mode::Output);
 
+                for b in self.led_displays[i].state.iter().rev() {
+                    if *b {
+                        gpio.write(self.led_displays[i].data_pin, Level::Low);
+                    } else {
+                        gpio.write(self.led_displays[i].data_pin, Level::High);
+                    }
 
-            for b in self.led_displays[i].state.iter().rev() {
-                if *b {
-                    gpio.write(self.led_displays[i].data_pin, Level::Low);
-                } else {
-                    gpio.write(self.led_displays[i].data_pin, Level::High);
+                    gpio.write(self.led_displays[i].clock_pin, Level::High);
+                    gpio.write(self.led_displays[i].clock_pin, Level::Low);
                 }
-
-                gpio.write(self.led_displays[i].clock_pin, Level::High);
-                gpio.write(self.led_displays[i].clock_pin, Level::Low);
             }
         }
 

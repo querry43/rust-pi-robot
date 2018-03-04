@@ -1,0 +1,114 @@
+---
+
+debug: false
+
+# enable hardware control
+enable: false
+
+pwm_channels:
+  - channel: 0
+    name: Right Arm
+    invert: true
+    low: 300
+    high: 550
+    position: 0
+  - channel: 1
+    name: Left Arm
+    invert: false
+    low: 200
+    high: 500
+    position: 0
+  - channel: 2
+    name: Head Pan
+    invert: true
+    low: 200
+    high: 500
+    position: 0.5
+  - channel: 3
+    name: Torso
+    invert: false
+    low: 200
+    high: 500
+    position: 0.5
+  - channel: 4
+    name: Head Tilt
+    invert: false
+    low: 400
+    high: 500
+    position: 0.3
+  - channel: 5
+    name: Unused
+    invert: false
+    low: 40
+    high: 1000
+    position: 0.5
+  - channel: 6
+    name: Unused
+    invert: false
+    low: 40
+    high: 1000
+    position: 0.5
+  - channel: 7
+    name: Unused
+    invert: false
+    low: 40
+    high: 1000
+    position: 0.5
+  - channel: 8
+    name: Right Eye Red
+    invert: false
+    low: 0
+    high: 1000
+    position: 0.2
+  - channel: 9
+    name: Right Eye Green
+    invert: false
+    low: 0
+    high: 1000
+    position: 0.2
+  - channel: 10
+    name: Right Eye Blue
+    invert: false
+    low: 0
+    high: 1000
+    position: 0.2
+  - channel: 11
+    name: Unused
+    invert: false
+    low: 40
+    high: 1000
+    position: 0.5
+  - channel: 12
+    name: Left Eye Red
+    invert: false
+    low: 0
+    high: 1000
+    position: 0.2
+  - channel: 13
+    name: Left Eye Green
+    invert: false
+    low: 0
+    high: 1000
+    position: 0.2
+  - channel: 14
+    name: Left Eye Blue
+    invert: false
+    low: 0
+    high: 1000
+    position: 0.2
+  - channel: 15
+    name: Unused
+    invert: false
+    low: 40
+    high: 1000
+    position: 0.5
+
+led_displays:
+  - channel: 0
+    clock_pin: 20
+    data_pin: 21
+    state: [ false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false ]
+  - channel: 1
+    clock_pin: 19
+    data_pin: 26
+    state: [ false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false ]

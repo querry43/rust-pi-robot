@@ -1,3 +1,4 @@
+extern crate config;
 extern crate i2c_pca9685;
 extern crate i2cdev;
 extern crate rppal;

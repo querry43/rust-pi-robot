@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Matt Harrington <querry43@gmail.com>"]
 
 [dependencies]
+config = "0.8"
 i2c-pca9685 = { git = "https://github.com/querry43/i2c-pca9685" }
 i2cdev = "= 0.3.1"
 rppal = "0.2"
