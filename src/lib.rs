@@ -11,10 +11,22 @@ use std::fmt;
 
 pub mod robot;
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PWMChannelMessage {
+    pub channel: u8,
+    pub position: f32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct LEDDisplayMessage {
+    pub channel: u8,
+    pub state: [bool; 16],
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Message {
-    PWMChannel(robot::PWMChannel),
-    LEDDisplay(robot::LEDDisplay),
+    PWMChannelMessage(PWMChannelMessage),
+    LEDDisplayMessage(LEDDisplayMessage),
 }
 
 impl fmt::Display for Message {

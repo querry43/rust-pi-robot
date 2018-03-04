@@ -9,41 +9,30 @@ use std::fmt;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PWMChannel {
-    pub channel: u8,
-    pub invert: bool,
-    pub low: u16,
-    pub high: u16,
-    pub position: f32,
+    channel: u8,
+    invert: bool,
+    low: u16,
+    high: u16,
+    position: f32,
 }
 
-impl Default for PWMChannel {
-    fn default() -> PWMChannel {
-        PWMChannel {
-            channel: 0,
-            invert: false,
-            low: 40,
-            high: 1000,
-            position: 0.5,
-        }
+impl PWMChannel {
+    pub fn position(&mut self, p: f32) {
+        self.position = p;
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LEDDisplay {
-    pub channel: u8,
-    pub state: [bool; 16],
-    pub clock_pin: u8,
-    pub data_pin: u8,
+    channel: u8,
+    state: [bool; 16],
+    clock_pin: u8,
+    data_pin: u8,
 }
 
-impl Default for LEDDisplay {
-    fn default() -> LEDDisplay {
-        LEDDisplay {
-            channel: 0,
-            state: [false; 16],
-            clock_pin: 0,
-            data_pin: 0,
-        }
+impl LEDDisplay {
+    pub fn state(&mut self, s: [bool; 16]) {
+        self.state = s;
     }
 }
 

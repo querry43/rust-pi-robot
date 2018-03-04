@@ -23,8 +23,8 @@ impl Handler for Server {
         let m = assigato_remote::Message::from(msg.as_text().unwrap());
         let mut r = self.robot.lock().unwrap();
         match m {
-            assigato_remote::Message::PWMChannel(pwm) => r.pwm_channels[pwm.channel as usize].position = pwm.position.clone(),
-            assigato_remote::Message::LEDDisplay(led) => r.led_displays[led.channel as usize].state = led.state.clone(),
+            assigato_remote::Message::PWMChannelMessage(pwm) => r.pwm_channels[pwm.channel as usize].position(pwm.position),
+            assigato_remote::Message::LEDDisplayMessage(led) => r.led_displays[led.channel as usize].state(led.state),
         }
         r.update().unwrap();
         self.out.broadcast(r.to_string())

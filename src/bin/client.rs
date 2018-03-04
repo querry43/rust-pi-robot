@@ -9,8 +9,8 @@ struct Client {
 
 impl Handler for Client {
     fn on_open(&mut self, _: Handshake) -> ws::Result<()> {
-        //let m: assigato_remote::Message = { assigato_remote::Message::PWMChannel(assigato_remote::robot::PWMChannel { channel: 3, position: 0.73, ..Default::default() } ) };
-        let m: assigato_remote::Message = { assigato_remote::Message::LEDDisplay(assigato_remote::robot::LEDDisplay { channel: 0, state: [ false, true, false, true, false, false, false, false, true, true, true, true, false, false, false, true ], ..Default::default() } ) };
+        //let m: assigato_remote::Message = { assigato_remote::Message::PWMChannelMessage(assigato_remote::PWMChannelMessage { channel: 3, position: 0.73 } ) };
+        let m: assigato_remote::Message = { assigato_remote::Message::LEDDisplayMessage(assigato_remote::LEDDisplayMessage { channel: 0, state: [ false, true, false, true, false, false, false, false, true, true, true, true, false, false, false, true ] } ) };
         self.out.send(m.to_string())
     }
 
