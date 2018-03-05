@@ -1,4 +1,11 @@
 use config::{ConfigError, Config, File, Environment};
+use i2c_pca9685::PCA9685;
+use i2cdev::linux::{LinuxI2CDevice, LinuxI2CError};
+use rppal::gpio::{Gpio, Mode, Level};
+use rppal::system::DeviceInfo;
+use rppal;
+use std::error::Error;
+use std::fmt;
 
 
 #[derive(Clone, Debug, Deserialize)]
@@ -73,14 +80,77 @@ pub struct RobotState {
     pub led_displays: Vec<LEDDisplayState>,
 }
 
-#[derive(Clone, Debug)]
 pub struct Robot {
     config: RobotConfig,
     state: RobotState,
+    pwm: Option<PCA9685<LinuxI2CDevice>>,
+    gpio: Option<Gpio>,
+}
+
+impl fmt::Debug for Robot {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Robot {{ config: {:?}, state: {:?} }}", self.config, self.state)
+    }
+}
+
+#[derive(Debug)]
+pub struct ChannelError {
+    channel: u8,
+}
+
+impl fmt::Display for ChannelError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Channel out of range: {}", self.channel)
+    }
+}
+
+impl Error for ChannelError {
+    fn description(&self) -> &str {
+        "Channel out of range"
+    }
+}
+
+#[derive(Debug)]
+pub enum RobotError {
+    ConfigError(ConfigError),
+    LinuxI2CError(LinuxI2CError),
+    RpalSystemError(rppal::system::Error),
+    RpalGpioError(rppal::gpio::Error),
+    ChannelError(ChannelError),
+}
+
+impl From<ConfigError> for RobotError {
+    fn from(err: ConfigError) -> RobotError {
+        RobotError::ConfigError(err)
+    }
+}
+
+impl From<LinuxI2CError> for RobotError {
+    fn from(err: LinuxI2CError) -> RobotError {
+        RobotError::LinuxI2CError(err)
+    }
+}
+
+impl From<rppal::system::Error> for RobotError {
+    fn from(err: rppal::system::Error) -> RobotError {
+        RobotError::RpalSystemError(err)
+    }
+}
+
+impl From<rppal::gpio::Error> for RobotError {
+    fn from(err: rppal::gpio::Error) -> RobotError {
+        RobotError::RpalGpioError(err)
+    }
+}
+
+impl From<ChannelError> for RobotError {
+    fn from(err: ChannelError) -> RobotError {
+        RobotError::ChannelError(err)
+    }
 }
 
 impl Robot {
-    pub fn new() -> Result<Self, ConfigError> {
+    pub fn new() -> Result<Self, RobotError> {
         let config = RobotConfig::new()?;
 
         let state = RobotState {
@@ -88,17 +158,107 @@ impl Robot {
             led_displays: config.clone().led_displays.iter().map(|x| LEDDisplayState::from(x)).collect(),
         };
 
+        let mut pwm_option: Option<PCA9685<LinuxI2CDevice>> = None;
+        let mut gpio_option: Option<Gpio> = None;
+
+        if config.enable {
+            let device_info = DeviceInfo::new()?;
+            println!("Model: {} (SoC: {})", device_info.model(), device_info.soc());
+
+            let i2cdev = LinuxI2CDevice::new("/dev/i2c-1", 0x40)?;
+            let mut pwm = PCA9685::new(i2cdev)?;
+            pwm.set_pwm_freq(60.0)?;
+            pwm.set_all_pwm(0, 0)?;
+
+            pwm_option = Some(pwm);
+
+            let mut gpio = Gpio::new()?;
+            for i in 0..config.led_displays.len() {
+                gpio.set_mode(config.led_displays[i].clock_pin, Mode::Output);
+                gpio.set_mode(config.led_displays[i].data_pin, Mode::Output);
+                gpio.write(config.led_displays[i].clock_pin, Level::Low);
+                gpio.write(config.led_displays[i].data_pin, Level::Low);
+            }
+
+            gpio_option = Some(gpio);
+        }
+
         Ok(
             Robot {
                 config: config,
                 state: state,
+                pwm: pwm_option,
+                gpio: gpio_option,
             }
         )
     }
 
-    pub fn update_pwm_channel(&self, pwm_channel: PWMChannelState) {
+    pub fn update_pwm_channel(&mut self, pwm_channel: PWMChannelState) -> Result<(), ChannelError> {
+        if pwm_channel.channel as usize >= self.state.pwm_channels.len() {
+            Err(ChannelError { channel: pwm_channel.channel })
+        } else {
+            self.state.pwm_channels[pwm_channel.channel as usize].position = pwm_channel.position;
+            Ok(())
+        }
     }
 
-    pub fn update_led_display(&self, led_display: LEDDisplayState) {
+    pub fn update_led_display(&mut self, led_display: LEDDisplayState) -> Result<(), ChannelError> {
+        if led_display.channel as usize >= self.state.led_displays.len() {
+            Err(ChannelError { channel: led_display.channel })
+        } else {
+            self.state.led_displays[led_display.channel as usize].state = led_display.state.clone();
+            Ok(())
+        }
+    }
+
+    pub fn refresh(&mut self) -> Result<(), RobotError> {
+        self.refresh_led_displays()?;
+        self.refresh_pwm_channels()?;
+        Ok(())
+    }
+
+    fn refresh_led_displays(&mut self) -> Result<(), RobotError> {
+        for i in 0..self.state.led_displays.len() {
+            if self.config.debug {
+                println!("Updating led display channel {} to {:?}", i, self.state.led_displays[i].state);
+            }
+
+            for b in self.state.led_displays[i].state.iter().rev() {
+                match self.gpio {
+                    None => (),
+                    Some(ref mut gpio) => {
+                            if *b {
+                                gpio.write(self.config.led_displays[i].data_pin, Level::Low);
+                            } else {
+                                gpio.write(self.config.led_displays[i].data_pin, Level::High);
+                            }
+
+                            gpio.write(self.config.led_displays[i].clock_pin, Level::High);
+                            gpio.write(self.config.led_displays[i].clock_pin, Level::Low);
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn refresh_pwm_channels(&mut self) -> Result<(), RobotError> {
+        for i in 0..self.state.pwm_channels.len() {
+            let mut position = self.state.pwm_channels[i].position;
+            let range = self.config.pwm_channels[i].high - self.config.pwm_channels[i].low;
+            let val: u16 = (position * range as f32) as u16 + self.config.pwm_channels[i].low;
+
+            if self.config.debug {
+                println!("Updating pwm channel {} to position {} val {}", i, self.state.pwm_channels[i].position, val);
+            }
+
+            match self.pwm {
+                None => (),
+                Some(ref mut pwm) => pwm.set_pwm(i as u8, 0, val)?
+            }
+        }
+
+        Ok(())
     }
 }
