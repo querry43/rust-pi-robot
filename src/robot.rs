@@ -4,6 +4,7 @@ use i2cdev::linux::{LinuxI2CDevice, LinuxI2CError};
 use rppal::gpio::{Gpio, Mode, Level};
 use rppal::system::DeviceInfo;
 use rppal;
+use serde_json;
 use std::error::Error;
 use std::fmt;
 
@@ -80,9 +81,21 @@ pub struct RobotState {
     pub led_displays: Vec<LEDDisplayState>,
 }
 
+impl<'a> From<&'a str> for RobotState {
+    fn from(s: &str) -> Self {
+        serde_json::from_str(&s).unwrap()
+    }
+}
+
+impl fmt::Display for RobotState {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", serde_json::to_string(self).unwrap())
+    }
+}
+
 pub struct Robot {
     config: RobotConfig,
-    state: RobotState,
+    pub state: RobotState,
     pwm: Option<PCA9685<LinuxI2CDevice>>,
     gpio: Option<Gpio>,
 }
