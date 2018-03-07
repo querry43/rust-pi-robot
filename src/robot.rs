@@ -278,6 +278,10 @@ impl Robot {
     fn refresh_pwm_channels(&mut self) -> Result<(), RobotError> {
         for i in 0..self.state.pwm_channels.len() {
             let mut position = self.state.pwm_channels[i].position;
+            if self.config.pwm_channels[i].invert {
+                position *= -1.0;
+                position += 1.0;
+            }
             let range = self.config.pwm_channels[i].high - self.config.pwm_channels[i].low;
             let val: u16 = (position * range as f32) as u16 + self.config.pwm_channels[i].low;
 
