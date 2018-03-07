@@ -1,4 +1,5 @@
 extern crate assigato_remote;
+extern crate serde_json;
 extern crate ws;
 
 use ws::{connect, Handler, Sender, Handshake};
@@ -17,7 +18,7 @@ impl Handler for Client {
     }
 
     fn on_message(&mut self, msg: ws::Message) -> ws::Result<()> {
-        let robot = assigato_remote::robot::RobotState::from(msg.as_text()?);
+        let robot: assigato_remote::robot::RobotState = serde_json::from_str(msg.as_text()?).unwrap();
         println!("on_message: {:?}", robot);
         Ok(())
     }

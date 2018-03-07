@@ -23,12 +23,18 @@ impl Handler for Server {
         let m = assigato_remote::Message::from(msg.as_text()?);
 		println!("on_message: {:?}", m);
         let mut r = self.robot.lock().unwrap();
-        // XXX: get rid of the unwrap
-        match m {
-            assigato_remote::Message::PWMChannelState(msg) => r.update_pwm_channel(msg).unwrap(),
-            assigato_remote::Message::LEDDisplayState(msg) => r.update_led_display(msg).unwrap(),
-            assigato_remote::Message::RobotSpeak(msg) => r.robot_speak(msg).unwrap(),
+
+        let res = match m {
+            assigato_remote::Message::PWMChannelState(msg) => r.update_pwm_channel(msg),
+            assigato_remote::Message::LEDDisplayState(msg) => r.update_led_display(msg),
+            assigato_remote::Message::RobotSpeak(msg) => r.robot_speak(msg),
+        };
+
+        match res {
+            Ok(()) => (),
+            Err(err) => println!("Encountered error: {:?}", err),
         }
+
         self.out.broadcast(r.state.to_string())
     }
 

@@ -63,12 +63,6 @@ pub struct RobotSpeak {
     pub quip: String,
 }
 
-impl<'a> From<&'a str> for RobotSpeak {
-    fn from(s: &str) -> Self {
-        serde_json::from_str(&s).unwrap()
-    }
-}
-
 #[derive(Clone, Debug, Deserialize)]
 struct RobotConfig {
     enable: bool,
@@ -92,12 +86,6 @@ impl RobotConfig {
 pub struct RobotState {
     pub pwm_channels: Vec<PWMChannelState>,
     pub led_displays: Vec<LEDDisplayState>,
-}
-
-impl<'a> From<&'a str> for RobotState {
-    fn from(s: &str) -> Self {
-        serde_json::from_str(&s).unwrap()
-    }
 }
 
 impl fmt::Display for RobotState {
@@ -226,18 +214,18 @@ impl Robot {
         )
     }
 
-    pub fn update_pwm_channel(&mut self, pwm_channel: PWMChannelState) -> Result<(), ChannelError> {
+    pub fn update_pwm_channel(&mut self, pwm_channel: PWMChannelState) -> Result<(), RobotError> {
         if pwm_channel.channel as usize >= self.state.pwm_channels.len() {
-            Err(ChannelError { channel: pwm_channel.channel })
+            Err(RobotError::ChannelError(ChannelError { channel: pwm_channel.channel }))
         } else {
             self.state.pwm_channels[pwm_channel.channel as usize].position = pwm_channel.position;
             Ok(())
         }
     }
 
-    pub fn update_led_display(&mut self, led_display: LEDDisplayState) -> Result<(), ChannelError> {
+    pub fn update_led_display(&mut self, led_display: LEDDisplayState) -> Result<(), RobotError> {
         if led_display.channel as usize >= self.state.led_displays.len() {
-            Err(ChannelError { channel: led_display.channel })
+            Err(RobotError::ChannelError(ChannelError { channel: led_display.channel }))
         } else {
             self.state.led_displays[led_display.channel as usize].state = led_display.state.clone();
             Ok(())
