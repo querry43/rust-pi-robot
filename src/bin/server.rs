@@ -27,6 +27,7 @@ impl Handler for Server {
         match m {
             assigato_remote::Message::PWMChannelState(msg) => r.update_pwm_channel(msg).unwrap(),
             assigato_remote::Message::LEDDisplayState(msg) => r.update_led_display(msg).unwrap(),
+            assigato_remote::Message::RobotSpeak(msg) => r.robot_speak(msg).unwrap(),
         }
         self.out.broadcast(r.state.to_string())
     }

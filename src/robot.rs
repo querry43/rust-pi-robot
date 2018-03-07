@@ -7,6 +7,8 @@ use rppal;
 use serde_json;
 use std::error::Error;
 use std::fmt;
+use std::io;
+use std::process::Command;
 
 
 #[derive(Clone, Debug, Deserialize)]
@@ -53,6 +55,17 @@ impl<'a> From<&'a LEDDisplayConfig> for LEDDisplayState {
             channel: config.channel,
             state: config.initial_state.clone(),
         }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RobotSpeak {
+    pub quip: String,
+}
+
+impl<'a> From<&'a str> for RobotSpeak {
+    fn from(s: &str) -> Self {
+        serde_json::from_str(&s).unwrap()
     }
 }
 
@@ -130,6 +143,7 @@ pub enum RobotError {
     RpalSystemError(rppal::system::Error),
     RpalGpioError(rppal::gpio::Error),
     ChannelError(ChannelError),
+    IOError(io::Error),
 }
 
 impl From<ConfigError> for RobotError {
@@ -159,6 +173,12 @@ impl From<rppal::gpio::Error> for RobotError {
 impl From<ChannelError> for RobotError {
     fn from(err: ChannelError) -> RobotError {
         RobotError::ChannelError(err)
+    }
+}
+
+impl From<io::Error> for RobotError {
+    fn from(err: io::Error) -> RobotError {
+        RobotError::IOError(err)
     }
 }
 
@@ -222,6 +242,17 @@ impl Robot {
             self.state.led_displays[led_display.channel as usize].state = led_display.state.clone();
             Ok(())
         }
+    }
+
+    pub fn robot_speak(&mut self, robot_speak: RobotSpeak) -> Result<(), RobotError> {
+        if self.config.enable {
+            Command::new("espeak")
+                    .arg("-s")
+                    .arg("120")
+                    .arg(robot_speak.quip)
+                    .spawn()?;
+        }
+        Ok(())
     }
 
     pub fn refresh(&mut self) -> Result<(), RobotError> {

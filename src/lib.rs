@@ -15,6 +15,7 @@ pub mod robot;
 pub enum Message {
     PWMChannelState(robot::PWMChannelState),
     LEDDisplayState(robot::LEDDisplayState),
+    RobotSpeak(robot::RobotSpeak),
 }
 
 impl fmt::Display for Message {

@@ -10,8 +10,9 @@ struct Client {
 impl Handler for Client {
     fn on_open(&mut self, _: Handshake) -> ws::Result<()> {
         println!("connected");
-        let m: assigato_remote::Message = assigato_remote::Message::PWMChannelState(assigato_remote::robot::PWMChannelState { channel: 3, position: 0.73 } );
+        //let m: assigato_remote::Message = assigato_remote::Message::PWMChannelState(assigato_remote::robot::PWMChannelState { channel: 3, position: 0.73 } );
         //let m: assigato_remote::Message = assigato_remote::Message::LEDDisplayState(assigato_remote::robot::LEDDisplayState { channel: 0, state: [ false, true, false, true, false, false, false, false, true, true, true, true, false, false, false, true ] } );
+        let m: assigato_remote::Message = assigato_remote::Message::RobotSpeak(assigato_remote::robot::RobotSpeak { quip: String::from("hello") });
         self.out.send(m.to_string())
     }
 
