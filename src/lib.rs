@@ -43,7 +43,7 @@ impl<'a> From<&'a PWMChannelConfig> for PWMChannelState {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct LEDDisplayConfig {
+pub struct ShiftRegisterConfig {
     channel: u8,
     initial_state: [bool; 16],
     clock_pin: u8,
@@ -51,14 +51,14 @@ pub struct LEDDisplayConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct LEDDisplayState {
+pub struct ShiftRegisterState {
     pub channel: u8,
     pub state: [bool; 16],
 }
 
-impl<'a> From<&'a LEDDisplayConfig> for LEDDisplayState {
-    fn from(config: &LEDDisplayConfig) -> Self {
-        LEDDisplayState {
+impl<'a> From<&'a ShiftRegisterConfig> for ShiftRegisterState {
+    fn from(config: &ShiftRegisterConfig) -> Self {
+        ShiftRegisterState {
             channel: config.channel,
             state: config.initial_state.clone(),
         }
@@ -75,7 +75,7 @@ struct RobotConfig {
     enable: bool,
     debug: bool,
     pwm_channels: Vec<PWMChannelConfig>,
-    led_displays: Vec<LEDDisplayConfig>,
+    shift_registers: Vec<ShiftRegisterConfig>,
 }
 
 impl RobotConfig {
@@ -92,7 +92,7 @@ impl RobotConfig {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RobotState {
     pub pwm_channels: Vec<PWMChannelState>,
-    pub led_displays: Vec<LEDDisplayState>,
+    pub shift_registers: Vec<ShiftRegisterState>,
 }
 
 impl fmt::Display for RobotState {
@@ -183,7 +183,7 @@ impl Robot {
 
         let state = RobotState {
             pwm_channels: config.clone().pwm_channels.iter().map(|x| PWMChannelState::from(x)).collect(),
-            led_displays: config.clone().led_displays.iter().map(|x| LEDDisplayState::from(x)).collect(),
+            shift_registers: config.clone().shift_registers.iter().map(|x| ShiftRegisterState::from(x)).collect(),
         };
 
         let mut pwm_option: Option<PCA9685<LinuxI2CDevice>> = None;
@@ -201,11 +201,11 @@ impl Robot {
             pwm_option = Some(pwm);
 
             let mut gpio = Gpio::new()?;
-            for i in 0..config.led_displays.len() {
-                gpio.set_mode(config.led_displays[i].clock_pin, Mode::Output);
-                gpio.set_mode(config.led_displays[i].data_pin, Mode::Output);
-                gpio.write(config.led_displays[i].clock_pin, Level::Low);
-                gpio.write(config.led_displays[i].data_pin, Level::Low);
+            for i in 0..config.shift_registers.len() {
+                gpio.set_mode(config.shift_registers[i].clock_pin, Mode::Output);
+                gpio.set_mode(config.shift_registers[i].data_pin, Mode::Output);
+                gpio.write(config.shift_registers[i].clock_pin, Level::Low);
+                gpio.write(config.shift_registers[i].data_pin, Level::Low);
             }
 
             gpio_option = Some(gpio);
@@ -230,11 +230,11 @@ impl Robot {
         }
     }
 
-    pub fn update_led_display(&mut self, led_display: LEDDisplayState) -> Result<(), RobotError> {
-        if led_display.channel as usize >= self.state.led_displays.len() {
-            Err(RobotError::ChannelError(ChannelError { channel: led_display.channel }))
+    pub fn update_shift_register(&mut self, shift_register: ShiftRegisterState) -> Result<(), RobotError> {
+        if shift_register.channel as usize >= self.state.shift_registers.len() {
+            Err(RobotError::ChannelError(ChannelError { channel: shift_register.channel }))
         } else {
-            self.state.led_displays[led_display.channel as usize].state = led_display.state.clone();
+            self.state.shift_registers[shift_register.channel as usize].state = shift_register.state.clone();
             Ok(())
         }
     }
@@ -251,29 +251,29 @@ impl Robot {
     }
 
     pub fn refresh(&mut self) -> Result<(), RobotError> {
-        self.refresh_led_displays()?;
+        self.refresh_shift_registers()?;
         self.refresh_pwm_channels()?;
         Ok(())
     }
 
-    fn refresh_led_displays(&mut self) -> Result<(), RobotError> {
-        for i in 0..self.state.led_displays.len() {
+    fn refresh_shift_registers(&mut self) -> Result<(), RobotError> {
+        for i in 0..self.state.shift_registers.len() {
             if self.config.debug {
-                println!("Updating led display channel {} to {:?}", i, self.state.led_displays[i].state);
+                println!("Updating led display channel {} to {:?}", i, self.state.shift_registers[i].state);
             }
 
-            for b in self.state.led_displays[i].state.iter().rev() {
+            for b in self.state.shift_registers[i].state.iter().rev() {
                 match self.gpio {
                     None => (),
                     Some(ref mut gpio) => {
                             if *b {
-                                gpio.write(self.config.led_displays[i].data_pin, Level::Low);
+                                gpio.write(self.config.shift_registers[i].data_pin, Level::Low);
                             } else {
-                                gpio.write(self.config.led_displays[i].data_pin, Level::High);
+                                gpio.write(self.config.shift_registers[i].data_pin, Level::High);
                             }
 
-                            gpio.write(self.config.led_displays[i].clock_pin, Level::High);
-                            gpio.write(self.config.led_displays[i].clock_pin, Level::Low);
+                            gpio.write(self.config.shift_registers[i].clock_pin, Level::High);
+                            gpio.write(self.config.shift_registers[i].clock_pin, Level::Low);
                     }
                 }
             }
