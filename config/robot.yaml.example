@@ -1,0 +1,31 @@
+---
+
+# verbose logging to stdout
+debug: false
+
+# enable hardware control
+enable: false
+
+pwm_channels:
+  - channel: 0
+    name: Channel 0
+    invert: true
+    low: 100
+    high: 600
+    initial_position: 0
+  - channel: 1
+    name: Channel 1
+    invert: false
+    low: 200
+    high: 500
+    initial_position: 0.5
+
+shift_registers:
+  - channel: 0
+    clock_pin: 10
+    data_pin: 11
+    initial_state: [ false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true ]
+  - channel: 1
+    clock_pin: 20
+    data_pin: 21
+    initial_state: [ false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false ]

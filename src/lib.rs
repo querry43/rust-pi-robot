@@ -18,7 +18,7 @@ use std::io;
 use std::process::Command;
 
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 struct PWMChannelConfig {
     channel: u8,
     invert: bool,
@@ -27,7 +27,7 @@ struct PWMChannelConfig {
     initial_position: f32,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct PWMChannelState {
     pub channel: u8,
     pub position: f32,
@@ -42,7 +42,7 @@ impl<'a> From<&'a PWMChannelConfig> for PWMChannelState {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct ShiftRegisterConfig {
     channel: u8,
     initial_state: [bool; 16],
@@ -50,7 +50,7 @@ pub struct ShiftRegisterConfig {
     data_pin: u8,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct ShiftRegisterState {
     pub channel: u8,
     pub state: [bool; 16],
@@ -284,13 +284,7 @@ impl Robot {
 
     fn refresh_pwm_channels(&mut self) -> Result<(), RobotError> {
         for i in 0..self.state.pwm_channels.len() {
-            let mut position = self.state.pwm_channels[i].position;
-            if self.config.pwm_channels[i].invert {
-                position *= -1.0;
-                position += 1.0;
-            }
-            let range = self.config.pwm_channels[i].high - self.config.pwm_channels[i].low;
-            let val: u16 = (position * range as f32) as u16 + self.config.pwm_channels[i].low;
+            let val = self.pwm_value_from_config_and_state(&self.config.pwm_channels[i], &self.state.pwm_channels[i]);
 
             if self.config.debug {
                 println!("Updating pwm channel {} to position {} val {}", i, self.state.pwm_channels[i].position, val);
@@ -304,4 +298,239 @@ impl Robot {
 
         Ok(())
     }
+
+    fn pwm_value_from_config_and_state(&self, config: &PWMChannelConfig, state: &PWMChannelState) -> u16 {
+        let mut position = state.position;
+        if config.invert {
+            position *= -1.0;
+            position += 1.0;
+        }
+        let range = config.high - config.low;
+        let val: u16 = (position * range as f32) as u16 + config.low;
+        val
+    }
 }
+
+#[cfg(test)]
+mod robot {
+
+extern crate tempfile;
+
+use std::io::Write;
+
+static ROBOT_CONFIG: &str = r#"
+---
+debug: false
+enable: false
+pwm_channels:
+  - channel: 0
+    name: Channel 0
+    invert: true
+    low: 100
+    high: 600
+    initial_position: 0
+  - channel: 1
+    name: Channel 1
+    invert: false
+    low: 200
+    high: 500
+    initial_position: 0.5
+shift_registers:
+  - channel: 0
+    clock_pin: 10
+    data_pin: 11
+    initial_state: [ false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true ]
+  - channel: 1
+    clock_pin: 20
+    data_pin: 21
+    initial_state: [ false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false ]
+"#;
+
+use PWMChannelConfig;
+use PWMChannelState;
+use ShiftRegisterConfig;
+use ShiftRegisterState;
+
+#[test]
+fn it_constructs_a_robot_config() {
+    let mut tempfile = tempfile::NamedTempFileOptions::new().suffix(".yaml").create().unwrap();
+
+    tempfile.write(ROBOT_CONFIG.as_bytes()).unwrap();
+
+    let robot = ::Robot::new(tempfile.path().to_str().unwrap()).unwrap();
+    let robot_config = robot.config;
+    let robot_state = robot.state;
+
+    assert_eq!(robot_config.pwm_channels.len(), 2);
+    assert_eq!(robot_config.pwm_channels[0], PWMChannelConfig { channel: 0, invert: true, low: 100, high: 600, initial_position: 0.0 });
+    assert_eq!(robot_config.pwm_channels[1], PWMChannelConfig { channel: 1, invert: false, low: 200, high: 500, initial_position: 0.5 });
+
+    assert_eq!(robot_state.pwm_channels.len(), 2);
+    assert_eq!(robot_state.pwm_channels[0], PWMChannelState { channel: 0, position: 0.0 });
+    assert_eq!(robot_state.pwm_channels[1], PWMChannelState { channel: 1, position: 0.5 });
+
+    assert_eq!(robot_config.shift_registers.len(), 2);
+    assert_eq!(robot_config.shift_registers[0], ShiftRegisterConfig {
+        channel: 0,
+        initial_state: [ false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true ],
+        clock_pin: 10,
+        data_pin: 11,
+    });
+    assert_eq!(robot_config.shift_registers[1], ShiftRegisterConfig {
+        channel: 1,
+        initial_state: [ false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false ],
+        clock_pin: 20,
+        data_pin: 21,
+    });
+
+    assert_eq!(robot_state.shift_registers.len(), 2);
+    assert_eq!(robot_state.shift_registers[0], ShiftRegisterState {
+        channel: 0,
+        state: [ false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true ],
+    });
+    assert_eq!(robot_state.shift_registers[1], ShiftRegisterState {
+        channel: 1,
+        state: [ false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false ],
+    });
+}
+
+#[test]
+fn it_updates_pwm_channel_state() {
+    let mut tempfile = tempfile::NamedTempFileOptions::new().suffix(".yaml").create().unwrap();
+    tempfile.write(ROBOT_CONFIG.as_bytes()).unwrap();
+    let mut robot = ::Robot::new(tempfile.path().to_str().unwrap()).unwrap();
+
+    let robot_state = robot.state.clone();
+    assert_eq!(robot_state.pwm_channels[0].position, 0.0);
+    assert_eq!(robot_state.pwm_channels[1].position, 0.5);
+
+    robot.update_pwm_channel(::PWMChannelState { channel: 1, position: 0.0 }).unwrap();
+
+    let robot_state = robot.state.clone();
+    assert_eq!(robot_state.pwm_channels[0].position, 0.0);
+    assert_eq!(robot_state.pwm_channels[1].position, 0.0);
+
+    robot.update_pwm_channel(::PWMChannelState { channel: 1, position: 1.0 }).unwrap();
+
+    let robot_state = robot.state.clone();
+    assert_eq!(robot_state.pwm_channels[0].position, 0.0);
+    assert_eq!(robot_state.pwm_channels[1].position, 1.0);
+}
+
+#[test]
+fn it_updates_shift_register_state() {
+    let mut tempfile = tempfile::NamedTempFileOptions::new().suffix(".yaml").create().unwrap();
+    tempfile.write(ROBOT_CONFIG.as_bytes()).unwrap();
+    let mut robot = ::Robot::new(tempfile.path().to_str().unwrap()).unwrap();
+
+    let robot_state = robot.state.clone();
+    assert_eq!(robot_state.shift_registers[0].state,
+        [ false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true ]);
+    assert_eq!(robot_state.shift_registers[1].state,
+        [ false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false ]);
+
+    robot.update_shift_register(::ShiftRegisterState { channel: 1, state:
+        [ true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true ]
+    }).unwrap();
+
+    let robot_state = robot.state.clone();
+    assert_eq!(robot_state.shift_registers[0].state,
+        [ false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true ]);
+    assert_eq!(robot_state.shift_registers[1].state,
+        [ true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true ]);
+
+    robot.update_shift_register(::ShiftRegisterState { channel: 1, state:
+        [ false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false ]
+    }).unwrap();
+
+    let robot_state = robot.state.clone();
+    assert_eq!(robot_state.shift_registers[0].state,
+        [ false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true ]);
+    assert_eq!(robot_state.shift_registers[1].state,
+        [ false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false ]);
+}
+
+#[test]
+fn it_calculates_pwm_channel_absolute_position() {
+    let mut tempfile = tempfile::NamedTempFileOptions::new().suffix(".yaml").create().unwrap();
+    tempfile.write(ROBOT_CONFIG.as_bytes()).unwrap();
+    let robot = ::Robot::new(tempfile.path().to_str().unwrap()).unwrap();
+
+    let mut config = PWMChannelConfig {
+        channel: 0,
+        invert: false,
+        low: 100,
+        high: 600,
+        initial_position: 0.0,
+    };
+
+    assert_eq!(
+        robot.pwm_value_from_config_and_state(
+            &config,
+            &PWMChannelState {
+                channel: 0,
+                position: 0.0,
+            },
+        ),
+        100,
+    );
+
+    assert_eq!(
+        robot.pwm_value_from_config_and_state(
+            &config,
+            &PWMChannelState {
+                channel: 0,
+                position: 0.5,
+            },
+        ),
+        350,
+    );
+
+    assert_eq!(
+        robot.pwm_value_from_config_and_state(
+            &config,
+            &PWMChannelState {
+                channel: 0,
+                position: 1.0,
+            },
+        ),
+        600,
+    );
+
+    config.invert = true;
+
+    assert_eq!(
+        robot.pwm_value_from_config_and_state(
+            &config,
+            &PWMChannelState {
+                channel: 0,
+                position: 0.0,
+            },
+        ),
+        600,
+    );
+
+    assert_eq!(
+        robot.pwm_value_from_config_and_state(
+            &config,
+            &PWMChannelState {
+                channel: 0,
+                position: 0.5,
+            },
+        ),
+        350,
+    );
+
+    assert_eq!(
+        robot.pwm_value_from_config_and_state(
+            &config,
+            &PWMChannelState {
+                channel: 0,
+                position: 1.0,
+            },
+        ),
+        100,
+    );
+}
+
+} // mod robot
