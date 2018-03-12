@@ -21,6 +21,7 @@ use std::process::Command;
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 struct PWMChannelConfig {
     channel: u8,
+    name: String,
     invert: bool,
     low: u16,
     high: u16,
@@ -30,14 +31,14 @@ struct PWMChannelConfig {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct PWMChannelState {
     pub channel: u8,
-    pub position: f32,
+    pub position: Option<f32>,
 }
 
 impl<'a> From<&'a PWMChannelConfig> for PWMChannelState {
     fn from(config: &PWMChannelConfig) -> Self {
         PWMChannelState {
             channel: config.channel,
-            position: config.initial_position,
+            position: Some(config.initial_position),
         }
     }
 }
@@ -45,7 +46,7 @@ impl<'a> From<&'a PWMChannelConfig> for PWMChannelState {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct ShiftRegisterConfig {
     channel: u8,
-    initial_state: [bool; 16],
+    initial_state: Vec<bool>,
     clock_pin: u8,
     data_pin: u8,
 }
@@ -53,7 +54,7 @@ pub struct ShiftRegisterConfig {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct ShiftRegisterState {
     pub channel: u8,
-    pub state: [bool; 16],
+    pub state: Vec<bool>,
 }
 
 impl<'a> From<&'a ShiftRegisterConfig> for ShiftRegisterState {
@@ -186,10 +187,20 @@ impl Robot {
             shift_registers: config.clone().shift_registers.iter().map(|x| ShiftRegisterState::from(x)).collect(),
         };
 
-        let mut pwm_option: Option<PCA9685<LinuxI2CDevice>> = None;
-        let mut gpio_option: Option<Gpio> = None;
+        let mut this = Robot {
+            config: config,
+            state: state,
+            pwm: None,
+            gpio: None,
+        };
 
-        if config.enable {
+        this.init_hardware()?;
+
+        Ok(this)
+    }
+
+    fn init_hardware(&mut self) -> Result<(), RobotError> {
+        if self.config.enable {
             let device_info = DeviceInfo::new()?;
             println!("Model: {} (SoC: {})", device_info.model(), device_info.soc());
 
@@ -198,27 +209,20 @@ impl Robot {
             pwm.set_pwm_freq(60.0)?;
             pwm.set_all_pwm(0, 0)?;
 
-            pwm_option = Some(pwm);
+            self.pwm = Some(pwm);
 
             let mut gpio = Gpio::new()?;
-            for i in 0..config.shift_registers.len() {
-                gpio.set_mode(config.shift_registers[i].clock_pin, Mode::Output);
-                gpio.set_mode(config.shift_registers[i].data_pin, Mode::Output);
-                gpio.write(config.shift_registers[i].clock_pin, Level::Low);
-                gpio.write(config.shift_registers[i].data_pin, Level::Low);
+            for i in 0..self.config.shift_registers.len() {
+                gpio.set_mode(self.config.shift_registers[i].clock_pin, Mode::Output);
+                gpio.set_mode(self.config.shift_registers[i].data_pin, Mode::Output);
+                gpio.write(self.config.shift_registers[i].clock_pin, Level::Low);
+                gpio.write(self.config.shift_registers[i].data_pin, Level::Low);
             }
 
-            gpio_option = Some(gpio);
+            self.gpio = Some(gpio);
         }
 
-        Ok(
-            Robot {
-                config: config,
-                state: state,
-                pwm: pwm_option,
-                gpio: gpio_option,
-            }
-        )
+        Ok(())
     }
 
     pub fn update_pwm_channel(&mut self, pwm_channel: PWMChannelState) -> Result<(), RobotError> {
@@ -258,25 +262,36 @@ impl Robot {
 
     fn refresh_shift_registers(&mut self) -> Result<(), RobotError> {
         for i in 0..self.state.shift_registers.len() {
+            let shift_register_state = self.state.shift_registers[i].clone();
+            let shift_register_config = self.config.shift_registers[i].clone();
             if self.config.debug {
-                println!("Updating led display channel {} to {:?}", i, self.state.shift_registers[i].state);
+                println!("Updating led display channel {} to {:?}", i, shift_register_state.state);
             }
+            self.bitbang(
+                shift_register_state.state,
+                shift_register_config.clock_pin,
+                shift_register_config.data_pin,
+            )?;
+        }
 
-            for b in self.state.shift_registers[i].state.iter().rev() {
-                match self.gpio {
-                    None => (),
-                    Some(ref mut gpio) => {
-                            if *b {
-                                gpio.write(self.config.shift_registers[i].data_pin, Level::Low);
-                            } else {
-                                gpio.write(self.config.shift_registers[i].data_pin, Level::High);
-                            }
+        Ok(())
+    }
 
-                            gpio.write(self.config.shift_registers[i].clock_pin, Level::High);
-                            gpio.write(self.config.shift_registers[i].clock_pin, Level::Low);
+    fn bitbang(&mut self, data: Vec<bool>, clock_pin: u8, data_pin: u8) -> Result<(), RobotError> {
+        match self.gpio {
+            None => (),
+            Some(ref mut gpio) => {
+                for bit in data.iter().rev() {
+                    if *bit {
+                        gpio.write(data_pin, Level::Low);
+                    } else {
+                        gpio.write(data_pin, Level::High);
                     }
+
+                    gpio.write(clock_pin, Level::High);
+                    gpio.write(clock_pin, Level::Low);
                 }
-            }
+            },
         }
 
         Ok(())
@@ -287,7 +302,7 @@ impl Robot {
             let val = self.pwm_value_from_config_and_state(&self.config.pwm_channels[i], &self.state.pwm_channels[i]);
 
             if self.config.debug {
-                println!("Updating pwm channel {} to position {} val {}", i, self.state.pwm_channels[i].position, val);
+                println!("Updating pwm channel {} to position {:?} val {}", i, self.state.pwm_channels[i].position, val);
             }
 
             match self.pwm {
@@ -300,13 +315,17 @@ impl Robot {
     }
 
     fn pwm_value_from_config_and_state(&self, config: &PWMChannelConfig, state: &PWMChannelState) -> u16 {
-        let mut position = state.position;
-        if config.invert {
-            position *= -1.0;
-            position += 1.0;
-        }
-        let range = config.high - config.low;
-        let val: u16 = (position * range as f32) as u16 + config.low;
+        let val: u16 = match state.position {
+            None => 0,
+            Some(mut position) => {
+                if config.invert {
+                    position *= -1.0;
+                    position += 1.0;
+                }
+                let range = config.high - config.low;
+                (position * range as f32) as u16 + config.low
+            },
+        };
         val
     }
 }
@@ -339,11 +358,11 @@ shift_registers:
   - channel: 0
     clock_pin: 10
     data_pin: 11
-    initial_state: [ false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true ]
+    initial_state: [ false, true, false, true ]
   - channel: 1
     clock_pin: 20
     data_pin: 21
-    initial_state: [ false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false ]
+    initial_state: [ false, false, false, false ]
 "#;
 
 use PWMChannelConfig;
@@ -362,23 +381,23 @@ fn it_constructs_a_robot_config() {
     let robot_state = robot.state;
 
     assert_eq!(robot_config.pwm_channels.len(), 2);
-    assert_eq!(robot_config.pwm_channels[0], PWMChannelConfig { channel: 0, invert: true, low: 100, high: 600, initial_position: 0.0 });
-    assert_eq!(robot_config.pwm_channels[1], PWMChannelConfig { channel: 1, invert: false, low: 200, high: 500, initial_position: 0.5 });
+    assert_eq!(robot_config.pwm_channels[0], PWMChannelConfig { channel: 0, name: "Channel 0".to_string(), invert: true, low: 100, high: 600, initial_position: 0.0 });
+    assert_eq!(robot_config.pwm_channels[1], PWMChannelConfig { channel: 1, name: "Channel 1".to_string(), invert: false, low: 200, high: 500, initial_position: 0.5 });
 
     assert_eq!(robot_state.pwm_channels.len(), 2);
-    assert_eq!(robot_state.pwm_channels[0], PWMChannelState { channel: 0, position: 0.0 });
-    assert_eq!(robot_state.pwm_channels[1], PWMChannelState { channel: 1, position: 0.5 });
+    assert_eq!(robot_state.pwm_channels[0], PWMChannelState { channel: 0, position: Some(0.0) });
+    assert_eq!(robot_state.pwm_channels[1], PWMChannelState { channel: 1, position: Some(0.5) });
 
     assert_eq!(robot_config.shift_registers.len(), 2);
     assert_eq!(robot_config.shift_registers[0], ShiftRegisterConfig {
         channel: 0,
-        initial_state: [ false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true ],
+        initial_state: vec![ false, true, false, true ],
         clock_pin: 10,
         data_pin: 11,
     });
     assert_eq!(robot_config.shift_registers[1], ShiftRegisterConfig {
         channel: 1,
-        initial_state: [ false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false ],
+        initial_state: vec![ false, false, false, false ],
         clock_pin: 20,
         data_pin: 21,
     });
@@ -386,11 +405,11 @@ fn it_constructs_a_robot_config() {
     assert_eq!(robot_state.shift_registers.len(), 2);
     assert_eq!(robot_state.shift_registers[0], ShiftRegisterState {
         channel: 0,
-        state: [ false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true ],
+        state: vec![ false, true, false, true ],
     });
     assert_eq!(robot_state.shift_registers[1], ShiftRegisterState {
         channel: 1,
-        state: [ false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false ],
+        state: vec![ false, false, false, false ],
     });
 }
 
@@ -401,20 +420,20 @@ fn it_updates_pwm_channel_state() {
     let mut robot = ::Robot::new(tempfile.path().to_str().unwrap()).unwrap();
 
     let robot_state = robot.state.clone();
-    assert_eq!(robot_state.pwm_channels[0].position, 0.0);
-    assert_eq!(robot_state.pwm_channels[1].position, 0.5);
+    assert_eq!(robot_state.pwm_channels[0].position, Some(0.0));
+    assert_eq!(robot_state.pwm_channels[1].position, Some(0.5));
 
-    robot.update_pwm_channel(::PWMChannelState { channel: 1, position: 0.0 }).unwrap();
-
-    let robot_state = robot.state.clone();
-    assert_eq!(robot_state.pwm_channels[0].position, 0.0);
-    assert_eq!(robot_state.pwm_channels[1].position, 0.0);
-
-    robot.update_pwm_channel(::PWMChannelState { channel: 1, position: 1.0 }).unwrap();
+    robot.update_pwm_channel(::PWMChannelState { channel: 1, position: Some(0.0) }).unwrap();
 
     let robot_state = robot.state.clone();
-    assert_eq!(robot_state.pwm_channels[0].position, 0.0);
-    assert_eq!(robot_state.pwm_channels[1].position, 1.0);
+    assert_eq!(robot_state.pwm_channels[0].position, Some(0.0));
+    assert_eq!(robot_state.pwm_channels[1].position, Some(0.0));
+
+    robot.update_pwm_channel(::PWMChannelState { channel: 1, position: Some(1.0) }).unwrap();
+
+    let robot_state = robot.state.clone();
+    assert_eq!(robot_state.pwm_channels[0].position, Some(0.0));
+    assert_eq!(robot_state.pwm_channels[1].position, Some(1.0));
 }
 
 #[test]
@@ -424,30 +443,20 @@ fn it_updates_shift_register_state() {
     let mut robot = ::Robot::new(tempfile.path().to_str().unwrap()).unwrap();
 
     let robot_state = robot.state.clone();
-    assert_eq!(robot_state.shift_registers[0].state,
-        [ false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true ]);
-    assert_eq!(robot_state.shift_registers[1].state,
-        [ false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false ]);
+    assert_eq!(robot_state.shift_registers[0].state, vec![ false, true, false, true ]);
+    assert_eq!(robot_state.shift_registers[1].state, vec![ false, false, false, false ]);
 
-    robot.update_shift_register(::ShiftRegisterState { channel: 1, state:
-        [ true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true ]
-    }).unwrap();
+    robot.update_shift_register(::ShiftRegisterState { channel: 1, state: vec![ true, true, true, true ] }).unwrap();
 
     let robot_state = robot.state.clone();
-    assert_eq!(robot_state.shift_registers[0].state,
-        [ false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true ]);
-    assert_eq!(robot_state.shift_registers[1].state,
-        [ true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true ]);
+    assert_eq!(robot_state.shift_registers[0].state, vec![ false, true, false, true ]);
+    assert_eq!(robot_state.shift_registers[1].state, vec![ true, true, true, true ]);
 
-    robot.update_shift_register(::ShiftRegisterState { channel: 1, state:
-        [ false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false ]
-    }).unwrap();
+    robot.update_shift_register(::ShiftRegisterState { channel: 1, state: vec![ false, false, false, false ] }).unwrap();
 
     let robot_state = robot.state.clone();
-    assert_eq!(robot_state.shift_registers[0].state,
-        [ false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true ]);
-    assert_eq!(robot_state.shift_registers[1].state,
-        [ false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false ]);
+    assert_eq!(robot_state.shift_registers[0].state, vec![ false, true, false, true ]);
+    assert_eq!(robot_state.shift_registers[1].state, vec![ false, false, false, false ]);
 }
 
 #[test]
@@ -458,6 +467,7 @@ fn it_calculates_pwm_channel_absolute_position() {
 
     let mut config = PWMChannelConfig {
         channel: 0,
+        name: "Channel 0".to_string(),
         invert: false,
         low: 100,
         high: 600,
@@ -469,7 +479,7 @@ fn it_calculates_pwm_channel_absolute_position() {
             &config,
             &PWMChannelState {
                 channel: 0,
-                position: 0.0,
+                position: Some(0.0),
             },
         ),
         100,
@@ -480,7 +490,7 @@ fn it_calculates_pwm_channel_absolute_position() {
             &config,
             &PWMChannelState {
                 channel: 0,
-                position: 0.5,
+                position: Some(0.5),
             },
         ),
         350,
@@ -491,7 +501,7 @@ fn it_calculates_pwm_channel_absolute_position() {
             &config,
             &PWMChannelState {
                 channel: 0,
-                position: 1.0,
+                position: Some(1.0),
             },
         ),
         600,
@@ -504,7 +514,7 @@ fn it_calculates_pwm_channel_absolute_position() {
             &config,
             &PWMChannelState {
                 channel: 0,
-                position: 0.0,
+                position: Some(0.0),
             },
         ),
         600,
@@ -515,7 +525,7 @@ fn it_calculates_pwm_channel_absolute_position() {
             &config,
             &PWMChannelState {
                 channel: 0,
-                position: 0.5,
+                position: Some(0.5),
             },
         ),
         350,
@@ -526,10 +536,21 @@ fn it_calculates_pwm_channel_absolute_position() {
             &config,
             &PWMChannelState {
                 channel: 0,
-                position: 1.0,
+                position: Some(1.0),
             },
         ),
         100,
+    );
+
+    assert_eq!(
+        robot.pwm_value_from_config_and_state(
+            &config,
+            &PWMChannelState {
+                channel: 0,
+                position: None,
+            },
+        ),
+        0,
     );
 }
 
