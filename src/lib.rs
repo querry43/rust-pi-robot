@@ -16,6 +16,7 @@ use std::error::Error;
 use std::fmt;
 use std::io;
 use std::process::Command;
+use std::time::SystemTime;
 
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -26,6 +27,7 @@ struct PWMChannelConfig {
     low: u16,
     high: u16,
     initial_position: f32,
+    idle_after_seconds: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -105,6 +107,7 @@ impl fmt::Display for RobotState {
 pub struct Robot {
     config: RobotConfig,
     pub state: RobotState,
+    pwm_channel_last_activity: Vec<SystemTime>,
     pwm: Option<PCA9685<LinuxI2CDevice>>,
     gpio: Option<Gpio>,
 }
@@ -187,9 +190,12 @@ impl Robot {
             shift_registers: config.clone().shift_registers.iter().map(|x| ShiftRegisterState::from(x)).collect(),
         };
 
+        let pwm_channel_last_activity = state.clone().pwm_channels.iter().map(|_| SystemTime::now()).collect();
+
         let mut this = Robot {
             config: config,
             state: state,
+            pwm_channel_last_activity: pwm_channel_last_activity,
             pwm: None,
             gpio: None,
         };
@@ -230,6 +236,7 @@ impl Robot {
             Err(RobotError::ChannelError(ChannelError { channel: pwm_channel.channel }))
         } else {
             self.state.pwm_channels[pwm_channel.channel as usize].position = pwm_channel.position;
+            self.pwm_channel_last_activity[pwm_channel.channel as usize] = SystemTime::now();
             Ok(())
         }
     }
@@ -301,6 +308,23 @@ impl Robot {
         for i in 0..self.state.pwm_channels.len() {
             let val = self.pwm_value_from_config_and_state(&self.config.pwm_channels[i], &self.state.pwm_channels[i]);
 
+            let seconds_since_activity = match self.pwm_channel_last_activity[i].elapsed() {
+                Err(_) => u64::max_value(),
+                Ok(duration) => duration.as_secs(),
+            };
+
+            match self.config.pwm_channels[i].idle_after_seconds {
+                None => (),
+                Some(idle_after_seconds) => {
+                    if !self.state.pwm_channels[i].position.is_none() && seconds_since_activity > idle_after_seconds {
+                        if self.config.debug {
+                            println!("Idling pwm channel {}", i);
+                        }
+                        self.state.pwm_channels[i].position = None;
+                    }
+                }
+            }
+
             if self.config.debug {
                 println!("Updating pwm channel {} to position {:?} val {}", i, self.state.pwm_channels[i].position, val);
             }
@@ -341,6 +365,7 @@ static ROBOT_CONFIG: &str = r#"
 ---
 debug: false
 enable: false
+
 pwm_channels:
   - channel: 0
     name: Channel 0
@@ -348,6 +373,7 @@ pwm_channels:
     low: 100
     high: 600
     initial_position: 0
+    idle_after_seconds: 60
   - channel: 1
     name: Channel 1
     invert: false
@@ -381,8 +407,8 @@ fn it_constructs_a_robot_config() {
     let robot_state = robot.state;
 
     assert_eq!(robot_config.pwm_channels.len(), 2);
-    assert_eq!(robot_config.pwm_channels[0], PWMChannelConfig { channel: 0, name: "Channel 0".to_string(), invert: true, low: 100, high: 600, initial_position: 0.0 });
-    assert_eq!(robot_config.pwm_channels[1], PWMChannelConfig { channel: 1, name: "Channel 1".to_string(), invert: false, low: 200, high: 500, initial_position: 0.5 });
+    assert_eq!(robot_config.pwm_channels[0], PWMChannelConfig { channel: 0, name: "Channel 0".to_string(), invert: true, low: 100, high: 600, initial_position: 0.0, idle_after_seconds: Some(60) });
+    assert_eq!(robot_config.pwm_channels[1], PWMChannelConfig { channel: 1, name: "Channel 1".to_string(), invert: false, low: 200, high: 500, initial_position: 0.5, idle_after_seconds: None });
 
     assert_eq!(robot_state.pwm_channels.len(), 2);
     assert_eq!(robot_state.pwm_channels[0], PWMChannelState { channel: 0, position: Some(0.0) });
@@ -472,6 +498,7 @@ fn it_calculates_pwm_channel_absolute_position() {
         low: 100,
         high: 600,
         initial_position: 0.0,
+        idle_after_seconds: None,
     };
 
     assert_eq!(

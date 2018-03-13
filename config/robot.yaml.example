@@ -13,6 +13,7 @@ pwm_channels:
     low: 100
     high: 600
     initial_position: 0
+    idle_after_seconds: 60
   - channel: 1
     name: Channel 1
     invert: false
