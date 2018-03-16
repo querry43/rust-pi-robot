@@ -15,7 +15,7 @@ use rppal::system::DeviceInfo;
 use std::error::Error;
 use std::fmt;
 use std::io;
-use std::process::Command;
+use std::process::{Child, Command};
 use std::time::SystemTime;
 
 
@@ -110,6 +110,7 @@ pub struct Robot {
     pwm_channel_last_activity: Vec<SystemTime>,
     pwm: Option<PCA9685<LinuxI2CDevice>>,
     gpio: Option<Gpio>,
+    children: Vec<Child>,
 }
 
 impl fmt::Debug for Robot {
@@ -198,6 +199,7 @@ impl Robot {
             pwm_channel_last_activity: pwm_channel_last_activity,
             pwm: None,
             gpio: None,
+            children: Vec::new(),
         };
 
         this.init_hardware()?;
@@ -252,11 +254,13 @@ impl Robot {
 
     pub fn robot_speak(&mut self, robot_speak: RobotSpeak) -> Result<(), RobotError> {
         if self.config.enable {
-            Command::new("espeak")
-                    .arg("-s")
-                    .arg("120")
-                    .arg(robot_speak.quip)
-                    .spawn()?;
+            let child = Command::new("/usr/bin/espeak")
+                .env_clear()
+                .arg("-s")
+                .arg("120")
+                .arg(robot_speak.quip)
+                .spawn()?;
+            self.children.push(child);
         }
         Ok(())
     }
@@ -264,6 +268,7 @@ impl Robot {
     pub fn refresh(&mut self) -> Result<(), RobotError> {
         self.refresh_shift_registers()?;
         self.refresh_pwm_channels()?;
+        self.reap_children()?;
         Ok(())
     }
 
@@ -351,6 +356,19 @@ impl Robot {
             },
         };
         val
+    }
+
+    fn reap_children(&mut self) -> Result<(), RobotError> {
+        let mut i = 0;
+        while i < self.children.len() {
+            match self.children[i].try_wait() {
+                Ok(None) => i = i + 1,
+                Ok(Some(_)) => { self.children.remove(i); () },
+                Err(_) => { self.children.remove(i); () },
+            }
+        }
+
+        Ok(())
     }
 }
 
