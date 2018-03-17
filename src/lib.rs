@@ -2,7 +2,6 @@ extern crate config;
 extern crate i2c_pca9685;
 extern crate i2cdev;
 extern crate rppal;
-extern crate serde_json;
 
 #[macro_use]
 extern crate serde_derive;
@@ -96,12 +95,6 @@ impl RobotConfig {
 pub struct RobotState {
     pub pwm_channels: Vec<PWMChannelState>,
     pub shift_registers: Vec<ShiftRegisterState>,
-}
-
-impl fmt::Display for RobotState {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", serde_json::to_string(self).unwrap())
-    }
 }
 
 pub struct Robot {
@@ -467,13 +460,13 @@ fn it_updates_pwm_channel_state() {
     assert_eq!(robot_state.pwm_channels[0].position, Some(0.0));
     assert_eq!(robot_state.pwm_channels[1].position, Some(0.5));
 
-    robot.update_pwm_channel(::PWMChannelState { channel: 1, position: Some(0.0) }).unwrap();
+    robot.update_pwm_channel(PWMChannelState { channel: 1, position: Some(0.0) }).unwrap();
 
     let robot_state = robot.state.clone();
     assert_eq!(robot_state.pwm_channels[0].position, Some(0.0));
     assert_eq!(robot_state.pwm_channels[1].position, Some(0.0));
 
-    robot.update_pwm_channel(::PWMChannelState { channel: 1, position: Some(1.0) }).unwrap();
+    robot.update_pwm_channel(PWMChannelState { channel: 1, position: Some(1.0) }).unwrap();
 
     let robot_state = robot.state.clone();
     assert_eq!(robot_state.pwm_channels[0].position, Some(0.0));
@@ -490,13 +483,13 @@ fn it_updates_shift_register_state() {
     assert_eq!(robot_state.shift_registers[0].state, vec![ false, true, false, true ]);
     assert_eq!(robot_state.shift_registers[1].state, vec![ false, false, false, false ]);
 
-    robot.update_shift_register(::ShiftRegisterState { channel: 1, state: vec![ true, true, true, true ] }).unwrap();
+    robot.update_shift_register(ShiftRegisterState { channel: 1, state: vec![ true, true, true, true ] }).unwrap();
 
     let robot_state = robot.state.clone();
     assert_eq!(robot_state.shift_registers[0].state, vec![ false, true, false, true ]);
     assert_eq!(robot_state.shift_registers[1].state, vec![ true, true, true, true ]);
 
-    robot.update_shift_register(::ShiftRegisterState { channel: 1, state: vec![ false, false, false, false ] }).unwrap();
+    robot.update_shift_register(ShiftRegisterState { channel: 1, state: vec![ false, false, false, false ] }).unwrap();
 
     let robot_state = robot.state.clone();
     assert_eq!(robot_state.shift_registers[0].state, vec![ false, true, false, true ]);
